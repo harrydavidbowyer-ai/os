@@ -1,4 +1,3 @@
-<!-- iframe.html — minimal widget page to commit to your os repo -->
 <!doctype html>
 <html lang="en">
 <head>
@@ -16,6 +15,21 @@
     button{padding:8px 12px;border-radius:8px;border:1px solid rgba(0,0,0,0.06);background:var(--accent);color:#fff;cursor:pointer}
     .secondary{background:#eee;color:#111;border:1px solid #ddd}
     small{display:block;margin-top:10px;color:#888}
+
+    /* Consent modal + privacy link + undo CTA */
+    #feelform-consent-root { font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial; }
+    .ff-modal-backdrop { position:fixed;inset:0;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;z-index:9999 }
+    .ff-modal { width:100%;max-width:520px;background:#fff;border-radius:12px;padding:18px;box-shadow:0 12px 40px rgba(0,0,0,0.12); }
+    .ff-title { margin:0 0 8px 0;font-size:18px;color:#111 }
+    .ff-body { margin:0 0 14px 0;color:#444;line-height:1.35 }
+    .ff-actions { display:flex;gap:8px;justify-content:flex-end }
+    .ff-btn { padding:8px 12px;border-radius:8px;border:1px solid #e6e6e6;background:#0b74de;color:#fff;cursor:pointer }
+    .ff-btn.secondary { background:#f3f4f6;color:#111;border:1px solid #ddd }
+    .ff-privacy { position:fixed; right:16px; bottom:16px; z-index:9998; background:#fff;border-radius:8px;padding:8px 10px;border:1px solid #eee;box-shadow:0 6px 18px rgba(0,0,0,0.06); cursor:pointer }
+    .ff-undo { position:fixed; left:50%; transform:translateX(-50%); bottom:24px; z-index:9999; background:#111;color:#fff;padding:10px 16px;border-radius:999px;box-shadow:0 8px 24px rgba(0,0,0,0.18); display:none; align-items:center; gap:10px }
+    .ff-undo button { background:transparent;border:0;color:#fff;font-weight:600;cursor:pointer }
+    .ff-rationale { font-size:13px;color:#666;margin-top:10px }
+    .ff-link { color:#0b74de;text-decoration:underline; cursor:pointer }
   </style>
 </head>
 <body>
@@ -31,6 +45,30 @@
       </div>
 
       <small id="rationale" aria-live="polite"></small>
+    </div>
+  </div>
+
+  <!-- Consent modal + privacy link + undo CTA -->
+  <div id="feelform-consent-root" aria-hidden="false">
+    <div id="ffModal" class="ff-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="ffTitle" style="display:none">
+      <div class="ff-modal" role="document">
+        <h3 id="ffTitle" class="ff-title">Feelform — Privacy first</h3>
+        <p class="ff-body">Feelform runs locally in your browser. We only use sensors you explicitly enable. No audio or keystroke data leaves your device unless you opt in.</p>
+        <div class="ff-actions">
+          <button id="ffSkip" class="ff-btn secondary">Skip</button>
+          <button id="ffAllowMic" class="ff-btn">Allow mic (optional)</button>
+        </div>
+        <div class="ff-rationale" id="ffRationale">You can revoke permissions anytime from this widget.</div>
+      </div>
+    </div>
+
+    <div id="ffPrivacy" class="ff-privacy" role="button" aria-label="Feelform privacy">
+      Privacy
+    </div>
+
+    <div id="ffUndo" class="ff-undo" role="status" aria-live="polite">
+      <span id="ffUndoText">Adaptive action applied</span>
+      <button id="ffUndoBtn">Undo</button>
     </div>
   </div>
 
@@ -65,45 +103,128 @@
         rationaleEl.textContent = text || '';
       }
 
+      // Consent modal elements and logic
+      const modal = document.getElementById('ffModal');
+      const allowMicBtn = document.getElementById('ffAllowMic');
+      const skipBtn = document.getElementById('ffSkip');
+      const privacyBtn = document.getElementById('ffPrivacy');
+      const undoEl = document.getElementById('ffUndo');
+      const undoBtn = document.getElementById('ffUndoBtn');
+      const undoText = document.getElementById('ffUndoText');
+      const rationale = document.getElementById('ffRationale');
+
+      const CONSENT_KEY = 'feelform_consent_v1';
+      const stored = (() => {
+        try { return JSON.parse(localStorage.getItem(CONSENT_KEY)); } catch(e){ return null; }
+      })();
+
+      function openModal() {
+        modal.style.display = 'flex';
+        const focusable = modal.querySelector('button');
+        if (focusable) focusable.focus();
+      }
+
+      function closeModal() {
+        modal.style.display = 'none';
+      }
+
+      function saveConsent(payload) {
+        try { localStorage.setItem(CONSENT_KEY, JSON.stringify(payload)); } catch(e){}
+        try { parent.postMessage({ type: 'consent:update', payload }, '*'); } catch(e){}
+      }
+
+      if (!stored) {
+        openModal();
+      } else {
+        if (stored.rationale) rationale.textContent = stored.rationale;
+      }
+
+      allowMicBtn.addEventListener('click', async () => {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          stream.getTracks().forEach(t => t.stop());
+          const payload = { mic: true, keyboard: false, wearable: false, rationale: 'Mic enabled by user' };
+          saveConsent(payload);
+          closeModal();
+          rationale.textContent = 'Microphone enabled locally.';
+        } catch (err) {
+          rationale.textContent = 'Microphone permission denied or unavailable.';
+        }
+      });
+
+      skipBtn.addEventListener('click', () => {
+        const payload = { mic: false, keyboard: false, wearable: false, rationale: 'User skipped' };
+        saveConsent(payload);
+        closeModal();
+        rationale.textContent = 'Sensors disabled by default.';
+      });
+
+      privacyBtn.addEventListener('click', () => {
+        if (modal.style.display === 'flex') return;
+        modal.style.display = 'flex';
+        modal.querySelector('.ff-title').textContent = 'How Feelform uses data';
+        modal.querySelector('.ff-body').innerHTML =
+          '<strong>Local processing by default.</strong> Inference runs in your browser.<br><strong>Explicit opt-in for sensors.</strong> Mic and keyboard require permission.<br><strong>Minimal retention.</strong> Only short labels and summaries are stored unless you enable raw logs.<br><span class="ff-link" id="ffPrivacyClose">Close</span>';
+        document.getElementById('ffPrivacyClose').addEventListener('click', () => {
+          modal.style.display = 'none';
+          modal.querySelector('.ff-title').textContent = 'Feelform — Privacy first';
+          modal.querySelector('.ff-body').textContent = 'Feelform runs locally in your browser. We only use sensors you explicitly enable. No audio or keystroke data leaves your device unless you opt in.';
+        }, { once: true });
+      });
+
+      // Undo CTA API
+      let undoTimer = null;
+      window.feelformShowUndo = function(message, undoCallback) {
+        undoText.textContent = message || 'Adaptive action applied';
+        undoEl.style.display = 'flex';
+        undoBtn.onclick = function() {
+          try { undoCallback && undoCallback(); } catch(e){}
+          hideUndo();
+        };
+        if (undoTimer) clearTimeout(undoTimer);
+        undoTimer = setTimeout(hideUndo, 8000);
+      };
+
+      function hideUndo() {
+        undoEl.style.display = 'none';
+        undoBtn.onclick = null;
+        if (undoTimer) { clearTimeout(undoTimer); undoTimer = null; }
+      }
+
+      window.feelformGetConsent = function() {
+        try { return JSON.parse(localStorage.getItem(CONSENT_KEY)); } catch(e){ return null; }
+      };
+
       // Handle messages from parent (init, consent:update, etc.)
       function handleMessage(ev) {
-        // Accept messages from any origin but validate shape and types strictly
         if (!ev || !ev.data || typeof ev.data !== 'object' || typeof ev.data.type !== 'string') return;
         const msg = ev.data;
 
         switch (msg.type) {
           case 'init':
-            // Parent initialized the widget; show UI and acknowledge
             setStatus('Widget initialized for ' + (msg.site || 'this site') + '.');
             showControls();
-            // Optionally respond with a small handshake ack
             try { parent.postMessage({ type: 'feelform:inited', timestamp: Date.now() }, ev.origin); } catch (e) {}
             break;
 
           case 'consent:update':
-            // Parent forwarded consent state; reflect in UI and enable features as appropriate
             const payload = msg.payload || {};
             setStatus('Consent updated.');
             setRationale('Mic: ' + (!!payload.mic) + ' · Keyboard: ' + (!!payload.keyboard) + ' · Wearable: ' + (!!payload.wearable));
             break;
 
           case 'consent:status':
-            // Parent asked for our consent status; reply with current state (example)
             try { parent.postMessage({ type: 'consent:status', payload: { mic: false, keyboard: false, wearable: false } }, ev.origin); } catch (e) {}
             break;
 
           default:
-            // ignore unknown types
             break;
         }
       }
 
-      // Wire up local consent buttons (these send messages to parent so host can record or forward)
       document.getElementById('consentMic').addEventListener('click', async () => {
-        // Example: request microphone permission only after explicit click
         try {
           const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          // Immediately stop tracks; we only demonstrate permission flow here
           stream.getTracks().forEach(t => t.stop());
           setStatus('Microphone permission granted (local use only).');
           setRationale('Ambient tone detection enabled.');
@@ -115,7 +236,6 @@
       });
 
       document.getElementById('consentKeyboard').addEventListener('click', () => {
-        // Keyboard-level sensing requires explicit host integration; signal consent to parent
         setStatus('Keyboard sensing consent toggled (host must enable).');
         setRationale('Keystroke dynamics enabled.');
         try { parent.postMessage({ type: 'consent:update', payload: { keyboard: true } }, '*'); } catch (e) {}
@@ -127,19 +247,17 @@
         try { parent.postMessage({ type: 'widget:closed' }, '*'); } catch (e) {}
       });
 
-      // Listen for messages from parent
       window.addEventListener('message', handleMessage, false);
 
-      // Send ready signal once DOM is loaded
       if (document.readyState === 'complete' || document.readyState === 'interactive') {
         sendReady();
       } else {
         window.addEventListener('DOMContentLoaded', sendReady, { once: true });
       }
 
-      // Small safety: remove listeners on unload
       window.addEventListener('unload', () => {
         window.removeEventListener('message', handleMessage);
+        if (undoTimer) clearTimeout(undoTimer);
       }, false);
 
     })();
