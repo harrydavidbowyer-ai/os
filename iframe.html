@@ -195,7 +195,7 @@
         try { return JSON.parse(localStorage.getItem(CONSENT_KEY)); } catch(e){ return null; }
       };
 
-      // Handle messages from parent (init, consent:update, etc.)
+      // Handle messages from parent (init, consent:update, requestSize, etc.)
       function handleMessage(ev) {
         if (!ev || !ev.data || typeof ev.data !== 'object' || typeof ev.data.type !== 'string') return;
         const msg = ev.data;
@@ -215,6 +215,10 @@
 
           case 'consent:status':
             try { parent.postMessage({ type: 'consent:status', payload: { mic: false, keyboard: false, wearable: false } }, ev.origin); } catch (e) {}
+            break;
+
+          case 'feelform:requestSize':
+            sendHeight();
             break;
 
           default:
@@ -254,6 +258,56 @@
       } else {
         window.addEventListener('DOMContentLoaded', sendReady, { once: true });
       }
+
+      // Dynamic height reporting to parent
+      (function(){
+        const PARENT_ORIGIN = '*'; // parent validates origin; keep '*' to ensure delivery
+        function sendHeight() {
+          try {
+            const doc = document.documentElement;
+            const body = document.body;
+            const height = Math.max(
+              doc.scrollHeight, doc.offsetHeight,
+              body.scrollHeight, body.offsetHeight,
+              doc.clientHeight
+            );
+            parent.postMessage({ type: 'feelform:resize', height: Math.ceil(height) }, PARENT_ORIGIN);
+          } catch (e) {
+            // ignore
+          }
+        }
+
+        // Debounce helper
+        let debounceTimer = null;
+        function debouncedSend() {
+          if (debounceTimer) clearTimeout(debounceTimer);
+          debounceTimer = setTimeout(() => { sendHeight(); debounceTimer = null; }, 100);
+        }
+
+        if (document.readyState === 'complete' || document.readyState === 'interactive') {
+          debouncedSend();
+        } else {
+          window.addEventListener('DOMContentLoaded', debouncedSend, { once: true });
+        }
+
+        // Observe layout changes
+        const ro = new ResizeObserver(debouncedSend);
+        try {
+          ro.observe(document.documentElement);
+          ro.observe(document.body);
+        } catch (e) {}
+
+        // Respond to explicit parent requests
+        window.addEventListener('message', (ev) => {
+          if (!ev || !ev.data || typeof ev.data !== 'object') return;
+          if (ev.data.type === 'feelform:requestSize') debouncedSend();
+        }, false);
+
+        window.addEventListener('unload', () => {
+          try { ro.disconnect(); } catch(e){}
+          if (debounceTimer) clearTimeout(debounceTimer);
+        }, false);
+      })();
 
       window.addEventListener('unload', () => {
         window.removeEventListener('message', handleMessage);
