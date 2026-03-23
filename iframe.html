@@ -1,0 +1,45 @@
+<!-- iframe.html — hosted widget entry (simple loader) -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Feelform Widget</title>
+  <style>
+    html,body{height:100%;margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto;}
+    #app{height:100%;display:flex;align-items:center;justify-content:center;background:#f7fbfb}
+    .card{width:100%;max-width:720px;padding:20px;border-radius:12px;background:#fff;box-shadow:0 6px 18px rgba(0,0,0,0.06)}
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div class="card" id="feelform-card">
+      <h3 style="margin:0 0 8px 0">Feelform</h3>
+      <p style="margin:0 0 12px 0;color:#555">Loading widget…</p>
+      <button id="consentBtn">Open Feelform</button>
+    </div>
+  </div>
+
+  <script>
+    // Minimal handshake with parent
+    const ORIGIN = new URL(document.location).origin;
+    function sendReady() {
+      parent.postMessage('feelform:ready', '*');
+    }
+    window.addEventListener('message', (ev) => {
+      if (!ev.data || ev.data.type !== 'init') return;
+      // init received: show UI or enable features
+      document.getElementById('feelform-card').querySelector('p').textContent = 'Widget initialized for ' + ev.data.site;
+    }, false);
+
+    document.getElementById('consentBtn').addEventListener('click', async () => {
+      // Example consent flow: request mic only after explicit click
+      const consent = confirm('Allow Feelform to use your microphone for ambient tone detection? Click OK to allow.');
+      parent.postMessage({type:'consent:update', payload:{mic: consent, keyboard:false}}, '*');
+    });
+
+    // Notify parent that iframe is ready
+    sendReady();
+  </script>
+</body>
+</html>
