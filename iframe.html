@@ -1,4 +1,4 @@
-<!-- iframe.html — hosted widget entry (simple loader) -->
+<!-- iframe.html — minimal widget page to commit to your os repo -->
 <!doctype html>
 <html lang="en">
 <head>
@@ -6,40 +6,143 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Feelform Widget</title>
   <style>
-    html,body{height:100%;margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto;}
-    #app{height:100%;display:flex;align-items:center;justify-content:center;background:#f7fbfb}
-    .card{width:100%;max-width:720px;padding:20px;border-radius:12px;background:#fff;box-shadow:0 6px 18px rgba(0,0,0,0.06)}
+    :root { --bg:#f7fbfb; --card:#fff; --muted:#555; --accent:#0b74de; }
+    html,body{height:100%;margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;}
+    #app{height:100%;display:flex;align-items:center;justify-content:center;background:var(--bg);padding:18px}
+    .card{width:100%;max-width:720px;padding:18px;border-radius:12px;background:var(--card);box-shadow:0 6px 18px rgba(0,0,0,0.06);text-align:left}
+    h3{margin:0 0 8px 0;font-size:18px}
+    p{margin:0 0 12px 0;color:var(--muted)}
+    .controls{display:flex;gap:8px;flex-wrap:wrap}
+    button{padding:8px 12px;border-radius:8px;border:1px solid rgba(0,0,0,0.06);background:var(--accent);color:#fff;cursor:pointer}
+    .secondary{background:#eee;color:#111;border:1px solid #ddd}
+    small{display:block;margin-top:10px;color:#888}
   </style>
 </head>
 <body>
   <div id="app">
-    <div class="card" id="feelform-card">
-      <h3 style="margin:0 0 8px 0">Feelform</h3>
-      <p style="margin:0 0 12px 0;color:#555">Loading widget…</p>
-      <button id="consentBtn">Open Feelform</button>
+    <div class="card" id="feelform-card" role="region" aria-label="Feelform widget">
+      <h3>Feelform</h3>
+      <p id="status">Initializing widget…</p>
+
+      <div class="controls" id="controls" aria-hidden="true" style="display:none">
+        <button id="consentMic">Enable Mic (optional)</button>
+        <button id="consentKeyboard" class="secondary">Enable Keyboard (optional)</button>
+        <button id="close" class="secondary">Close</button>
+      </div>
+
+      <small id="rationale" aria-live="polite"></small>
     </div>
   </div>
 
   <script>
-    // Minimal handshake with parent
-    const ORIGIN = new URL(document.location).origin;
-    function sendReady() {
-      parent.postMessage('feelform:ready', '*');
-    }
-    window.addEventListener('message', (ev) => {
-      if (!ev.data || ev.data.type !== 'init') return;
-      // init received: show UI or enable features
-      document.getElementById('feelform-card').querySelector('p').textContent = 'Widget initialized for ' + ev.data.site;
-    }, false);
+    (function(){
+      'use strict';
 
-    document.getElementById('consentBtn').addEventListener('click', async () => {
-      // Example consent flow: request mic only after explicit click
-      const consent = confirm('Allow Feelform to use your microphone for ambient tone detection? Click OK to allow.');
-      parent.postMessage({type:'consent:update', payload:{mic: consent, keyboard:false}}, '*');
-    });
+      // Notify parent that widget is ready. Parent will validate origin.
+      function sendReady() {
+        try {
+          parent.postMessage({ type: 'feelform:ready' }, '*');
+        } catch (e) {
+          console.warn('Feelform: ready postMessage failed', e);
+        }
+      }
 
-    // Notify parent that iframe is ready
-    sendReady();
+      // Update UI helpers
+      const statusEl = document.getElementById('status');
+      const controlsEl = document.getElementById('controls');
+      const rationaleEl = document.getElementById('rationale');
+
+      function showControls() {
+        controlsEl.style.display = 'flex';
+        controlsEl.setAttribute('aria-hidden', 'false');
+      }
+
+      function setStatus(text) {
+        statusEl.textContent = text;
+      }
+
+      function setRationale(text) {
+        rationaleEl.textContent = text || '';
+      }
+
+      // Handle messages from parent (init, consent:update, etc.)
+      function handleMessage(ev) {
+        // Accept messages from any origin but validate shape and types strictly
+        if (!ev || !ev.data || typeof ev.data !== 'object' || typeof ev.data.type !== 'string') return;
+        const msg = ev.data;
+
+        switch (msg.type) {
+          case 'init':
+            // Parent initialized the widget; show UI and acknowledge
+            setStatus('Widget initialized for ' + (msg.site || 'this site') + '.');
+            showControls();
+            // Optionally respond with a small handshake ack
+            try { parent.postMessage({ type: 'feelform:inited', timestamp: Date.now() }, ev.origin); } catch (e) {}
+            break;
+
+          case 'consent:update':
+            // Parent forwarded consent state; reflect in UI and enable features as appropriate
+            const payload = msg.payload || {};
+            setStatus('Consent updated.');
+            setRationale('Mic: ' + (!!payload.mic) + ' · Keyboard: ' + (!!payload.keyboard) + ' · Wearable: ' + (!!payload.wearable));
+            break;
+
+          case 'consent:status':
+            // Parent asked for our consent status; reply with current state (example)
+            try { parent.postMessage({ type: 'consent:status', payload: { mic: false, keyboard: false, wearable: false } }, ev.origin); } catch (e) {}
+            break;
+
+          default:
+            // ignore unknown types
+            break;
+        }
+      }
+
+      // Wire up local consent buttons (these send messages to parent so host can record or forward)
+      document.getElementById('consentMic').addEventListener('click', async () => {
+        // Example: request microphone permission only after explicit click
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          // Immediately stop tracks; we only demonstrate permission flow here
+          stream.getTracks().forEach(t => t.stop());
+          setStatus('Microphone permission granted (local use only).');
+          setRationale('Ambient tone detection enabled.');
+          try { parent.postMessage({ type: 'consent:update', payload: { mic: true } }, '*'); } catch (e) {}
+        } catch (err) {
+          setStatus('Microphone permission denied or unavailable.');
+          setRationale('');
+        }
+      });
+
+      document.getElementById('consentKeyboard').addEventListener('click', () => {
+        // Keyboard-level sensing requires explicit host integration; signal consent to parent
+        setStatus('Keyboard sensing consent toggled (host must enable).');
+        setRationale('Keystroke dynamics enabled.');
+        try { parent.postMessage({ type: 'consent:update', payload: { keyboard: true } }, '*'); } catch (e) {}
+      });
+
+      document.getElementById('close').addEventListener('click', () => {
+        setStatus('Widget closed by user.');
+        setRationale('');
+        try { parent.postMessage({ type: 'widget:closed' }, '*'); } catch (e) {}
+      });
+
+      // Listen for messages from parent
+      window.addEventListener('message', handleMessage, false);
+
+      // Send ready signal once DOM is loaded
+      if (document.readyState === 'complete' || document.readyState === 'interactive') {
+        sendReady();
+      } else {
+        window.addEventListener('DOMContentLoaded', sendReady, { once: true });
+      }
+
+      // Small safety: remove listeners on unload
+      window.addEventListener('unload', () => {
+        window.removeEventListener('message', handleMessage);
+      }, false);
+
+    })();
   </script>
 </body>
 </html>
