@@ -1,2 +1,333 @@
-<!doctype html><html><head><meta charset="utf-8"><title>OS</title></head>
-<body><h1>harrydavidbowyer-ai / os</h1><p>Site live on GitHub Pages.</p></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Feelform OS — WesternPhilosopher</title>
+
+<style>
+/* -----------------------------------------------------------
+   WESTERNPHILOSOPHER AESTHETIC LAYER
+----------------------------------------------------------- */
+
+:root {
+  --ff-bg: #f5f2ee;          /* warm stone */
+  --ff-surface: #e8dfd4;     /* pale cedar */
+  --ff-text: #2b2b2b;        /* deep ink */
+  --ff-accent: #c7a76a;      /* soft gold */
+  --ff-radius: 10px;
+  --ff-gap: 18px;
+  --ff-transition: 260ms ease;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--ff-bg);
+  color: var(--ff-text);
+  font-family: "Georgia", serif;
+  height: 100%;
+  overflow-x: hidden;
+}
+
+/* Cinematic fade-in */
+body {
+  opacity: 0;
+  animation: fadeIn 1.2s ease forwards;
+}
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.container {
+  max-width: 760px;
+  margin: 40px auto;
+  padding: 24px;
+  background: var(--ff-surface);
+  border-radius: var(--ff-radius);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.08);
+  transition: background var(--ff-transition);
+}
+
+/* Header */
+h1 {
+  margin: 0 0 6px 0;
+  font-size: 1.6rem;
+  letter-spacing: 0.5px;
+}
+
+.subtitle {
+  font-size: 1rem;
+  opacity: 0.7;
+  margin-bottom: 24px;
+}
+
+/* Fields */
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 1rem;
+}
+
+input, textarea {
+  padding: 12px;
+  border-radius: var(--ff-radius);
+  border: 1px solid #d0c7bd;
+  background: #fff;
+  font-family: "Inter", sans-serif;
+  font-size: 1rem;
+  transition: border var(--ff-transition), box-shadow var(--ff-transition);
+}
+
+/* Focus state — cedar glow + gold underline */
+input:focus, textarea:focus {
+  outline: none;
+  border-color: var(--ff-accent);
+  box-shadow: 0 0 0 2px rgba(199,167,106,0.25);
+}
+
+/* Completed state */
+input.completed, textarea.completed {
+  border-color: var(--ff-text);
+}
+
+/* Error state */
+.error {
+  color: #b00020;
+  font-size: 0.9rem;
+  min-height: 1rem;
+}
+
+/* Buttons */
+button {
+  padding: 12px 18px;
+  border-radius: var(--ff-radius);
+  border: none;
+  cursor: pointer;
+  font-size: 1rem;
+  transition: background var(--ff-transition), transform var(--ff-transition);
+}
+
+button.primary {
+  background: var(--ff-accent);
+  color: #fff;
+}
+
+button.secondary {
+  background: #dcd4c8;
+  color: #2b2b2b;
+}
+
+button:hover {
+  transform: translateY(-1px);
+}
+
+/* Status text */
+.status {
+  font-size: 0.9rem;
+  opacity: 0.7;
+  margin-top: 6px;
+}
+
+/* Accessibility anchor */
+#focus-anchor {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+
+/* Glyphs (symbolic micro-icons) */
+.glyph {
+  font-size: 0.8rem;
+  opacity: 0.6;
+  margin-left: 4px;
+}
+
+</style>
+</head>
+
+<body>
+<div id="focus-anchor" tabindex="0"></div>
+
+<div class="container">
+  <h1>Reflection Intake</h1>
+  <div class="subtitle">Begin where you are.</div>
+
+  <form id="ff-form" novalidate>
+
+    <label>
+      Your Name <span class="glyph">●</span>
+      <input id="name" name="name" type="text" required />
+      <div class="error" id="err-name"></div>
+    </label>
+
+    <label>
+      Email <span class="glyph">▲</span>
+      <input id="email" name="email" type="email" required />
+      <div class="error" id="err-email"></div>
+    </label>
+
+    <label>
+      What truth wants to be spoken today? <span class="glyph">■</span>
+      <textarea id="message" name="message" required></textarea>
+      <div class="error" id="err-message"></div>
+    </label>
+
+    <div style="display:flex; gap:12px; margin-top:12px;">
+      <button type="button" id="save-btn" class="secondary">Save Draft</button>
+      <button type="submit" class="primary">Submit</button>
+    </div>
+
+    <div class="status" id="save-status" aria-live="polite"></div>
+  </form>
+</div>
+
+<script>
+/* -----------------------------------------------------------
+   TECHNICAL SPINE — WesternPhilosopher Feelform OS
+----------------------------------------------------------- */
+
+let parentOrigin = null;
+let token = null;
+let autosaveTimer = null;
+let isOnline = navigator.onLine;
+const DRAFT_KEY = "feelform-draft-v1";
+
+/* Utility */
+function postToParent(msg) {
+  if (parentOrigin) parent.postMessage(msg, parentOrigin);
+}
+
+function serializeForm() {
+  const fd = new FormData(document.getElementById("ff-form"));
+  const obj = {};
+  for (const [k,v] of fd.entries()) obj[k] = v;
+  return obj;
+}
+
+function validate() {
+  let ok = true;
+  const name = nameInput.value.trim();
+  const email = emailInput.value.trim();
+  const message = messageInput.value.trim();
+
+  errName.textContent = "";
+  errEmail.textContent = "";
+  errMessage.textContent = "";
+
+  if (!name) { errName.textContent = "Please enter your name"; ok = false; }
+  if (!email || !/\\S+@\\S+\\.\\S+/.test(email)) { errEmail.textContent = "Enter a valid email"; ok = false; }
+  if (!message || message.length < 6) { errMessage.textContent = "Message is too short"; ok = false; }
+
+  return ok;
+}
+
+/* Autosave */
+function saveDraft(localOnly = false) {
+  const data = serializeForm();
+  localStorage.setItem(DRAFT_KEY, JSON.stringify(data));
+  saveStatus.textContent = "Draft saved";
+
+  if (localOnly || !token || !isOnline) return;
+
+  // Remote save (optional)
+  postToParent({
+    type: "event",
+    event: "saveDraft",
+    payload: data
+  });
+}
+
+/* Restore draft */
+function restoreDraft() {
+  const raw = localStorage.getItem(DRAFT_KEY);
+  if (!raw) return;
+  const data = JSON.parse(raw);
+  if (data.name) nameInput.value = data.name;
+  if (data.email) emailInput.value = data.email;
+  if (data.message) messageInput.value = data.message;
+  saveStatus.textContent = "Draft restored";
+}
+
+/* Resize */
+function sendResize() {
+  const height = document.documentElement.scrollHeight;
+  postToParent({
+    type: "event",
+    event: "resize",
+    payload: { height }
+  });
+}
+
+/* Message handling */
+window.addEventListener("message", (e) => {
+  if (!parentOrigin) parentOrigin = e.origin;
+
+  const msg = e.data || {};
+  if (msg.type === "init") {
+    token = msg.payload?.token || null;
+
+    // Apply theme variables
+    const vars = msg.payload?.vars || {};
+    for (const k in vars) {
+      document.documentElement.style.setProperty(k, vars[k]);
+    }
+
+    restoreDraft();
+    sendResize();
+
+    postToParent({
+      type: "ready",
+      id: msg.id,
+      payload: { version: "1.0.0" }
+    });
+  }
+});
+
+/* Submit */
+document.getElementById("ff-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  if (!validate()) return;
+
+  const data = serializeForm();
+  postToParent({
+    type: "event",
+    event: "formSubmitted",
+    payload: data
+  });
+
+  saveStatus.textContent = "Submitted";
+});
+
+/* Inputs */
+const nameInput = document.getElementById("name");
+const emailInput = document.getElementById("email");
+const messageInput = document.getElementById("message");
+const errName = document.getElementById("err-name");
+const errEmail = document.getElementById("err-email");
+const errMessage = document.getElementById("err-message");
+const saveStatus = document.getElementById("save-status");
+
+document.getElementById("save-btn").addEventListener("click", () => saveDraft(false));
+
+document.getElementById("ff-form").addEventListener("input", () => {
+  sendResize();
+});
+
+/* Online/offline */
+window.addEventListener("online", () => { isOnline = true; });
+window.addEventListener("offline", () => { isOnline = false; saveStatus.textContent = "Offline — draft saved locally"; });
+
+/* Observe DOM changes */
+new MutationObserver(sendResize).observe(document.body, { childList: true, subtree: true });
+
+sendResize();
+</script>
+
+</body>
+</html>
